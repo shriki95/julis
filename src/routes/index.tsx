@@ -24,26 +24,25 @@ export const Route = createFileRoute("/")({
 
 type ImageItem = {
   id: string;
-  postUrl: string;
-  x: number; // percentage 0-100
-  y: number; // percentage 0-100
-  width: number; // px
-  rotation: number; // deg
+  mediaId: string;
+  x: number;
+  y: number;
+  width: number;
+  rotation: number;
   zIndex: number;
 };
 
-type FetchedImage = { postUrl: string; width: number; height: number };
+type FetchedImage = { mediaId: string; width: number; height: number };
 
 function buildLayout(images: FetchedImage[]): ImageItem[] {
-  // Moodboard layout: scattered with varying sizes & subtle rotation.
   return images.map((img, i) => {
     const seed = (i + 1) * 9301 + 49297;
     const rand = (n: number) => (Math.sin(seed * (n + 1)) + 1) / 2;
     const sizeBucket = i % 4;
     const widthPx = sizeBucket === 0 ? 240 : sizeBucket === 1 ? 180 : sizeBucket === 2 ? 200 : 160;
     return {
-      id: `${i}-${img.postUrl.slice(-16)}`,
-      postUrl: img.postUrl,
+      id: `${i}-${img.mediaId}`,
+      mediaId: img.mediaId,
       x: 5 + rand(1) * 75,
       y: 5 + rand(2) * 75,
       width: widthPx,
@@ -303,7 +302,7 @@ function Index() {
             >
               <div className="overflow-hidden rounded-sm bg-white p-2 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.15)] ring-1 ring-stone-900/5">
                 <img
-                  src={`/api/instagram-image?post=${encodeURIComponent(item.postUrl)}`}
+                  src={`/api/instagram-image?mediaId=${item.mediaId}`}
                   alt="Instagram inspiration"
                   draggable={false}
                   className="block h-auto w-full pointer-events-none"

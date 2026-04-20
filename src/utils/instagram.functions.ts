@@ -3,7 +3,7 @@ import { createServerFn } from "@tanstack/react-start";
 const HANDLE = "julis.social";
 
 type ImageResult = {
-  postUrl: string;
+  mediaId: string;
   width: number;
   height: number;
 };
@@ -45,30 +45,16 @@ export const fetchInstagramImages = createServerFn({ method: "GET" }).handler(
       for (const img of images) {
         const candidateUrl: string | undefined = img?.imageUrl;
         if (!candidateUrl) continue;
-        if (!/lookaside\.(instagram|fbsbx)\.com/.test(candidateUrl)) continue;
-        if (/profile_pic/i.test(candidateUrl)) continue;
+        if (!/lookaside\.instagram\.com\/seo\/google_widget\/crawler/.test(candidateUrl)) continue;
 
-        // Follow the SEO crawler URL to find the underlying post URL
-        let postUrl: string | null = null;
-        try {
-          const redirectRes = await fetch(candidateUrl, {
-            method: "GET",
-            redirect: "manual",
-            headers: { "User-Agent": "Mozilla/5.0" },
-          });
-          postUrl = redirectRes.headers.get("location");
-        } catch {
-          continue;
-        }
-
-        if (!postUrl || !/instagram\.com\/(p|reel)\//.test(postUrl)) continue;
-
-        const dedupeKey = postUrl.split("?")[0];
-        if (seen.has(dedupeKey)) continue;
-        seen.add(dedupeKey);
+        const m = candidateUrl.match(/media_id=(\d+)/);
+        const mediaId = m?.[1];
+        if (!mediaId) continue;
+        if (seen.has(mediaId)) continue;
+        seen.add(mediaId);
 
         results.push({
-          postUrl,
+          mediaId,
           width: Number(img?.imageWidth) || 1080,
           height: Number(img?.imageHeight) || 1080,
         });
