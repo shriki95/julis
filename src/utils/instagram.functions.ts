@@ -21,7 +21,10 @@ async function firecrawlSearch(query: string, limit: number) {
   // Firecrawl connector does NOT use the gateway — call API directly
   const res = await fetch("https://api.firecrawl.dev/v2/search", {
     method: "POST",
-    headers,
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${firecrawlKey}`,
+    },
     body: JSON.stringify({
       query,
       limit,
