@@ -39,46 +39,78 @@ async function firecrawlSearch(query: string, limit: number) {
   return res.json();
 }
 
+async function resolveInstagramImage(
+  candidateUrl: string,
+): Promise<{ src?: string; postUrl?: string } | null> {
+  try {
+    const redirectRes = await fetch(candidateUrl, {
+      method: "GET",
+      redirect: "manual",
+      headers: {
+        "User-Agent": "Mozilla/5.0",
+      },
+    });
+
+    const redirectedPostUrl = redirectRes.headers.get("location") || candidateUrl;
+    const postRes = await fetch(redirectedPostUrl, {
+      headers: {
+        "User-Agent": "Mozilla/5.0",
+      },
+    });
+
+    if (!postRes.ok) return null;
+
+    const html = await postRes.text();
+    const imageMatch = html.match(/<meta property="og:image" content="([^"]+)"/i);
+    const urlMatch = html.match(/<meta property="og:url" content="([^"]+)"/i);
+    const src = imageMatch?.[1];
+    const postUrl = urlMatch?.[1] || redirectedPostUrl;
+
+    if (!src || /profile_pic/i.test(src)) return null;
+    return { src, postUrl };
+  } catch {
+    return null;
+  }
+}
+
 export const fetchInstagramImages = createServerFn({ method: "GET" }).handler(
   async (): Promise<ScrapeResult> => {
     try {
       // site: search returns only julis.social posts (no fuzzy matches like "julius"/"jules")
       const data = await firecrawlSearch(`site:instagram.com/${HANDLE}`, 30);
       const images = data?.data?.images ?? [];
-
-      const filtered: ImageResult[] = [];
-      const seen = new Set<string>();
-
-      for (const img of images) {
-        const src: string | undefined = img?.imageUrl;
-        const postUrl: string | undefined = img?.url;
-        if (!src || !postUrl) continue;
-
-        // Only keep Instagram lookaside SEO crawler images (these are public)
-        if (!/lookaside\.(instagram|fbsbx)\.com/.test(src)) continue;
-
-        // Skip profile pics
-        if (/profile_pic/.test(src)) continue;
-
-        // Strongly prefer images that came from a julis.social post — but accept others too
-        // because Google may attach the same media to related URLs
-        const dedupeKey = src.split("?").slice(-1)[0] || src;
-        if (seen.has(dedupeKey)) continue;
-        seen.add(dedupeKey);
-
-        filtered.push({
-          src,
-          postUrl,
+      const candidates = images
+        .map((img: { imageUrl?: string; imageWidth?: number; imageHeight?: number }) => ({
+          candidateUrl: img?.imageUrl,
           width: Number(img?.imageWidth) || 1080,
           height: Number(img?.imageHeight) || 1080,
-        });
-      }
+        }))
+        .filter((img: { candidateUrl?: string; width: number; height: number }) => {
+          return Boolean(img.candidateUrl) && /lookaside\.(instagram|fbsbx)\.com/.test(img.candidateUrl || "");
+        })
+        .slice(0, 12);
 
-      // Prioritize julis.social posts, then others
-      filtered.sort((a, b) => {
-        const aIsJulis = a.postUrl.includes(HANDLE) ? 0 : 1;
-        const bIsJulis = b.postUrl.includes(HANDLE) ? 0 : 1;
-        return aIsJulis - bIsJulis;
+      const resolved = await Promise.all(
+        candidates.map(async (img: { candidateUrl?: string; width: number; height: number }) => {
+          const result = await resolveInstagramImage(img.candidateUrl!);
+          if (!result?.src || !result.postUrl) return null;
+
+          return {
+            src: result.src,
+            postUrl: result.postUrl,
+            width: img.width,
+            height: img.height,
+          } satisfies ImageResult;
+        }),
+      );
+
+      const seen = new Set<string>();
+      const filtered = resolved.filter((img): img is ImageResult => {
+        if (!img || !img.postUrl.includes(HANDLE)) return false;
+        const dedupeKey = img.src.split("?")[0];
+        if (seen.has(dedupeKey)) return false;
+        seen.add(dedupeKey);
+        return true;
       });
 
       return { images: filtered.slice(0, 20) };
