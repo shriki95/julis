@@ -303,7 +303,7 @@ function Index() {
             >
               <div className="overflow-hidden rounded-sm bg-white p-2 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.15)] ring-1 ring-stone-900/5">
                 <img
-                  src={item.src}
+                  src={`/api/instagram-image?url=${encodeURIComponent(item.src)}`}
                   alt="Instagram inspiration"
                   draggable={false}
                   className="block h-auto w-full pointer-events-none"
