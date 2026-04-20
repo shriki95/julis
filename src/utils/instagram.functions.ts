@@ -1,92 +1,99 @@
 import { createServerFn } from "@tanstack/react-start";
 
-const INSTAGRAM_URL = "https://www.instagram.com/julis.social/";
+const HANDLE = "julis.social";
+
+type ImageResult = {
+  src: string;
+  postUrl: string;
+  width: number;
+  height: number;
+};
 
 type ScrapeResult = {
-  images: string[];
+  images: ImageResult[];
   error?: string;
 };
 
+const GATEWAY_URL = "https://connector-gateway.lovable.dev/firecrawl/v2";
+
+async function firecrawlSearch(query: string, limit: number) {
+  const lovableKey = process.env.LOVABLE_API_KEY;
+  const firecrawlKey = process.env.FIRECRAWL_API_KEY;
+  if (!firecrawlKey) throw new Error("FIRECRAWL_API_KEY is not configured");
+
+  // Prefer gateway if available, fall back to direct API
+  const useGateway = Boolean(lovableKey);
+  const url = useGateway ? `${GATEWAY_URL}/search` : "https://api.firecrawl.dev/v2/search";
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (useGateway) {
+    headers["Authorization"] = `Bearer ${lovableKey}`;
+    headers["X-Connection-Api-Key"] = firecrawlKey;
+  } else {
+    headers["Authorization"] = `Bearer ${firecrawlKey}`;
+  }
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      query,
+      limit,
+      sources: ["images"],
+    }),
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Firecrawl search failed [${res.status}]: ${text.slice(0, 200)}`);
+  }
+  return res.json();
+}
+
 export const fetchInstagramImages = createServerFn({ method: "GET" }).handler(
   async (): Promise<ScrapeResult> => {
-    const apiKey = process.env.FIRECRAWL_API_KEY;
-    if (!apiKey) {
-      return { images: [], error: "FIRECRAWL_API_KEY is not configured" };
-    }
-
     try {
-      const { default: Firecrawl } = await import("@mendable/firecrawl-js");
-      const firecrawl = new Firecrawl({ apiKey });
+      // Use quoted handle search — returns Instagram SEO preview images for the account's posts
+      const data = await firecrawlSearch(`"${HANDLE}" instagram`, 30);
+      const images = data?.data?.images ?? [];
 
-      const result = await firecrawl.scrape(INSTAGRAM_URL, {
-        formats: ["html", "links"],
-        onlyMainContent: false,
-        waitFor: 3000,
+      const filtered: ImageResult[] = [];
+      const seen = new Set<string>();
+
+      for (const img of images) {
+        const src: string | undefined = img?.imageUrl;
+        const postUrl: string | undefined = img?.url;
+        if (!src || !postUrl) continue;
+
+        // Only keep Instagram lookaside SEO crawler images (these are public)
+        if (!/lookaside\.(instagram|fbsbx)\.com/.test(src)) continue;
+
+        // Skip profile pics
+        if (/profile_pic/.test(src)) continue;
+
+        // Strongly prefer images that came from a julis.social post — but accept others too
+        // because Google may attach the same media to related URLs
+        const dedupeKey = src.split("?").slice(-1)[0] || src;
+        if (seen.has(dedupeKey)) continue;
+        seen.add(dedupeKey);
+
+        filtered.push({
+          src,
+          postUrl,
+          width: Number(img?.imageWidth) || 1080,
+          height: Number(img?.imageHeight) || 1080,
+        });
+      }
+
+      // Prioritize julis.social posts, then others
+      filtered.sort((a, b) => {
+        const aIsJulis = a.postUrl.includes(HANDLE) ? 0 : 1;
+        const bIsJulis = b.postUrl.includes(HANDLE) ? 0 : 1;
+        return aIsJulis - bIsJulis;
       });
 
-      const html: string =
-        (result as { html?: string }).html ??
-        (result as { data?: { html?: string } }).data?.html ??
-        "";
-      const links: string[] =
-        (result as { links?: string[] }).links ??
-        (result as { data?: { links?: string[] } }).data?.links ??
-        [];
-
-      const imageSet = new Set<string>();
-
-      // Extract from <img src="..."> and srcset
-      const imgRegex = /<img[^>]+src=["']([^"']+)["'][^>]*>/gi;
-      let match: RegExpExecArray | null;
-      while ((match = imgRegex.exec(html)) !== null) {
-        imageSet.add(match[1]);
-      }
-
-      // Also catch srcset URLs
-      const srcsetRegex = /srcset=["']([^"']+)["']/gi;
-      while ((match = srcsetRegex.exec(html)) !== null) {
-        const parts = match[1].split(",");
-        for (const part of parts) {
-          const url = part.trim().split(/\s+/)[0];
-          if (url) imageSet.add(url);
-        }
-      }
-
-      // Extract from JSON-embedded URLs in HTML (Instagram embeds image URLs in scripts)
-      const jsonImgRegex = /https?:\/\/[^"'s)]+\.(?:jpg|jpeg|png|webp)(?:\?[^"'s)]*)?/gi;
-      while ((match = jsonImgRegex.exec(html)) !== null) {
-        imageSet.add(match[0]);
-      }
-
-      // Add image-like links
-      for (const link of links) {
-        if (/\.(jpg|jpeg|png|webp)(\?|$)/i.test(link)) {
-          imageSet.add(link);
-        }
-      }
-
-      // Filter: keep only Instagram CDN images, exclude profile pic placeholders/sprites
-      const filtered = Array.from(imageSet).filter((url) => {
-        if (!/^https?:\/\//.test(url)) return false;
-        // Exclude tiny icons, sprites, and emojis
-        if (/static\.cdninstagram\.com.*\/(rsrc|sprite|emoji)/i.test(url)) return false;
-        if (/\/s150x150\//.test(url)) return false; // tiny avatars
-        // Prefer cdninstagram or fbcdn image hosts
-        return /cdninstagram\.com|fbcdn\.net/i.test(url);
-      });
-
-      // Dedupe by base path (ignore query params that vary)
-      const dedupedMap = new Map<string, string>();
-      for (const url of filtered) {
-        const key = url.split("?")[0];
-        if (!dedupedMap.has(key)) dedupedMap.set(key, url);
-      }
-
-      const images = Array.from(dedupedMap.values()).slice(0, 24);
-
-      return { images };
+      return { images: filtered.slice(0, 20) };
     } catch (error) {
-      console.error("Firecrawl scrape failed:", error);
+      console.error("Instagram fetch failed:", error);
       const message = error instanceof Error ? error.message : "Unknown error";
       return { images: [], error: message };
     }
