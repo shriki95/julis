@@ -305,7 +305,6 @@ function Index() {
                 <img
                   src={item.src}
                   alt="Instagram inspiration"
-                  crossOrigin="anonymous"
                   draggable={false}
                   className="block h-auto w-full pointer-events-none"
                   onError={(e) => {
