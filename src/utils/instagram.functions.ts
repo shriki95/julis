@@ -14,27 +14,17 @@ type ScrapeResult = {
   error?: string;
 };
 
-const GATEWAY_URL = "https://connector-gateway.lovable.dev/firecrawl/v2";
-
 async function firecrawlSearch(query: string, limit: number) {
-  const lovableKey = process.env.LOVABLE_API_KEY;
   const firecrawlKey = process.env.FIRECRAWL_API_KEY;
   if (!firecrawlKey) throw new Error("FIRECRAWL_API_KEY is not configured");
 
-  // Prefer gateway if available, fall back to direct API
-  const useGateway = Boolean(lovableKey);
-  const url = useGateway ? `${GATEWAY_URL}/search` : "https://api.firecrawl.dev/v2/search";
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (useGateway) {
-    headers["Authorization"] = `Bearer ${lovableKey}`;
-    headers["X-Connection-Api-Key"] = firecrawlKey;
-  } else {
-    headers["Authorization"] = `Bearer ${firecrawlKey}`;
-  }
-
-  const res = await fetch(url, {
+  // Firecrawl connector does NOT use the gateway — call API directly
+  const res = await fetch("https://api.firecrawl.dev/v2/search", {
     method: "POST",
-    headers,
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${firecrawlKey}`,
+    },
     body: JSON.stringify({
       query,
       limit,
@@ -52,8 +42,8 @@ async function firecrawlSearch(query: string, limit: number) {
 export const fetchInstagramImages = createServerFn({ method: "GET" }).handler(
   async (): Promise<ScrapeResult> => {
     try {
-      // Use quoted handle search — returns Instagram SEO preview images for the account's posts
-      const data = await firecrawlSearch(`"${HANDLE}" instagram`, 30);
+      // site: search returns only julis.social posts (no fuzzy matches like "julius"/"jules")
+      const data = await firecrawlSearch(`site:instagram.com/${HANDLE}`, 30);
       const images = data?.data?.images ?? [];
 
       const filtered: ImageResult[] = [];
