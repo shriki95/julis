@@ -32,20 +32,22 @@ type ImageItem = {
   zIndex: number;
 };
 
-function buildLayout(images: string[], canvasWidth: number, canvasHeight: number): ImageItem[] {
+type FetchedImage = { src: string; postUrl: string; width: number; height: number };
+
+function buildLayout(images: FetchedImage[]): ImageItem[] {
   // Moodboard layout: scattered with varying sizes & subtle rotation.
-  return images.map((src, i) => {
+  return images.map((img, i) => {
     const seed = (i + 1) * 9301 + 49297;
     const rand = (n: number) => ((Math.sin(seed * (n + 1)) + 1) / 2);
     const sizeBucket = i % 4;
     const widthPx = sizeBucket === 0 ? 240 : sizeBucket === 1 ? 180 : sizeBucket === 2 ? 200 : 160;
     return {
-      id: `${i}-${src.slice(-12)}`,
-      src,
+      id: `${i}-${img.src.slice(-16)}`,
+      src: img.src,
       x: 5 + rand(1) * 75,
       y: 5 + rand(2) * 75,
       width: widthPx,
-      rotation: (rand(3) - 0.5) * 16, // -8 to +8 degrees
+      rotation: (rand(3) - 0.5) * 16,
       zIndex: i,
     };
   });
@@ -82,7 +84,7 @@ function Index() {
 
   useEffect(() => {
     if (initial?.images?.length) {
-      setItems(buildLayout(initial.images, 1200, 800));
+      setItems(buildLayout(initial.images));
     } else if (initial?.error) {
       toast.error(`Couldn't load images: ${initial.error}`);
     }
@@ -93,7 +95,7 @@ function Index() {
     try {
       const result = await fetchInstagramImages();
       if (result.images.length) {
-        setItems(buildLayout(result.images, 1200, 800));
+        setItems(buildLayout(result.images));
         toast.success(`Loaded ${result.images.length} images`);
       } else {
         toast.error(result.error || "No images found");
