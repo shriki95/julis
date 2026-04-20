@@ -42,8 +42,8 @@ async function firecrawlSearch(query: string, limit: number) {
 export const fetchInstagramImages = createServerFn({ method: "GET" }).handler(
   async (): Promise<ScrapeResult> => {
     try {
-      // Use quoted handle search — returns Instagram SEO preview images for the account's posts
-      const data = await firecrawlSearch(`"${HANDLE}" instagram`, 30);
+      // site: search returns only julis.social posts (no fuzzy matches like "julius"/"jules")
+      const data = await firecrawlSearch(`site:instagram.com/${HANDLE}`, 30);
       const images = data?.data?.images ?? [];
 
       const filtered: ImageResult[] = [];
